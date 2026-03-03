@@ -115,29 +115,49 @@ function App() {
 
   return (
     <main>
-      <h1>CARLA User Interface</h1>
-      <div>
-        <section>
-          <form onSubmit={handleClick}>
-            <div>
-              <input type="file" id='model' name="model" accept=".pt" />
-              <br />
-              <label htmlFor="model">Model in .pt format</label><br />
+      <header className="app-header">
+        <img src="/uc3m-logo.jpg" alt="UC3M Logo" className="uc3m-logo" />
+        <h1>CARLA User Interface</h1>
+        <p className="app-description">
+          {/* Añade aquí la descripción de tu aplicación */}
+        </p>
+      </header>
+
+      <div className="content">
+        <section className="form-section">
+          <form onSubmit={handleClick} className="inference-form">
+            <fieldset>
+              <legend>Model Configuration</legend>
               
-              <input type="radio" id="tiled" name="inference_mode" value="Tiled" />
-              <label htmlFor="tiled">Model uses tiling</label><br />
-              <input type="radio" id="not_tiled" name="inference_mode" value="NonTiled" />
-              <label htmlFor="not_tiled">Model does not use tiling</label><br/>
+              <div className="form-group">
+                <label htmlFor="model">Model file (.pt)</label>
+                <input type="file" id="model" name="model" accept=".pt" />
+              </div>
 
-            </div>
+              <div className="form-group">
+                <span className="radio-group-label">Inference mode</span>
+                <div className="radio-group">
+                  <label className="radio-option">
+                    <input type="radio" id="tiled" name="inference_mode" value="Tiled" />
+                    <span>Tiled</span>
+                  </label>
+                  <label className="radio-option">
+                    <input type="radio" id="not_tiled" name="inference_mode" value="NonTiled" />
+                    <span>Non-Tiled</span>
+                  </label>
+                </div>
+              </div>
+            </fieldset>
 
-            <div>
-              <input type="file" id='frame' name="frame" accept="image/*,video/*" />
-              <br />
-              <label htmlFor="frame">File, it can be either an image or a video</label>
-            </div>
+            <fieldset>
+              <legend>Input Data</legend>
+              <div className="form-group">
+                <label htmlFor="frame">Image or Video file</label>
+                <input type="file" id="frame" name="frame" accept="image/*,video/*" />
+              </div>
+            </fieldset>
 
-            <button type='submit'>Process file</button>
+            <button type="submit" className="submit-btn">Process file</button>
             {isLoading && (
               <div className="loading">
                 <Loading color="#111" size={56} />
