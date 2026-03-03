@@ -139,6 +139,13 @@ async def run_inference(
 
             r_boxes = model_runner.inference() or {}
 
+            # Get video FPS for matching simple_plots video duration
+            video_fps = 30  # Default FPS
+            if is_video:
+                cap = cv2.VideoCapture(str(frame_path))
+                video_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+                cap.release()
+
             if r_boxes:
                 if is_video:
                     cap = cv2.VideoCapture(str(frame_path))
@@ -201,7 +208,7 @@ async def run_inference(
             simple_plots_video_path = create_simple_plots_video(
                 plots_dir=str(simple_plots_dir),
                 output_video=str(simple_plots_dir / "simple_plots_video.webm"),
-                fps=5,
+                fps=int(video_fps),
             )
 
             if is_video:
