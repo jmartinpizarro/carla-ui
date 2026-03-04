@@ -19,6 +19,16 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [simplePlotsResult, setSimplePlotsResult] = useState(null)
   const [outputResult, setOutputResult] = useState(null)
+  const [theme, setTheme] = useState(() => {
+    const savedTheme = localStorage.getItem('theme')
+    return savedTheme || 'light'
+  })
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
 
   useEffect(() => {
     return () => {
@@ -115,11 +125,33 @@ function App() {
 
   return (
     <main>
+      <div className="theme-toggle">
+        <button 
+          className={`theme-btn light-btn ${theme === 'light' ? 'active' : ''}`}
+          onClick={() => setTheme('light')}
+          title="Modo claro"
+        >
+          ☀
+        </button>
+        <button 
+          className={`theme-btn dark-btn ${theme === 'dark' ? 'active' : ''}`}
+          onClick={() => setTheme('dark')}
+          title="Modo oscuro"
+        >
+          ☾
+        </button>
+      </div>
       <header className="app-header">
         <img src="/uc3m-logo.jpg" alt="UC3M Logo" className="uc3m-logo" />
         <h1>CARLA User Interface</h1>
         <p className="app-description">
-          {/* Añade aquí la descripción de tu aplicación */}
+          This UI was done for easing the video processing for box prediction and geo-spatial location for the Final Bachelor Thesis of Javier Martín Pizarro.
+          <br />
+          <br />
+          The usage is simple: insert your .pt model and select if either it was trained or not using tiling methodologies. Then, insert your data to be predicted: it can be either an image or a video (mp4 file).
+          <br />
+          <br />
+          Because of how the API internally works, a simple video of 22 seconds can be processed in up to 10 minutes! If you are aiming for quick results using the terminal, do not hesitate and fork the original CARLA repository where prediction can be almost real-time.
         </p>
       </header>
 
