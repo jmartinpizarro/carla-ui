@@ -146,6 +146,15 @@ body {
   color: inherit;
 }
 
+.form-group input[type="number"] {
+  width: 90%;
+  padding: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+}
+
 .radio-group-label {
   display: block;
   margin-bottom: 0.5rem;
@@ -213,4 +222,42 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+.results-section {
+  margin-top: 2rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.logs-list {
+  margin: 1rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.logs-list li {
+  margin-bottom: 0.6rem;
+}
+
+.artifacts-block {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.artifacts-block h3 {
+  margin: 0 0 0.5rem;
+}
+
+.artifacts-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.artifacts-list li {
+  margin-bottom: 0.35rem;
+  overflow-wrap: anywhere;
 }

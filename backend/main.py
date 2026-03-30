@@ -1,10 +1,8 @@
-import base64
 import glob
-import mimetypes
 import os
 import shutil
-import subprocess
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -28,38 +26,13 @@ app.add_middleware(
 )
 
 
-def _file_to_base64(file_path: Path) -> str:
-    with open(file_path, "rb") as file_descriptor:
-        return base64.b64encode(file_descriptor.read()).decode("utf-8")
-
-
-def _guess_content_type(file_path: Path, fallback: str) -> str:
-    guessed_type, _ = mimetypes.guess_type(str(file_path))
-    return guessed_type or fallback
-
-
 def _is_video_suffix(suffix: str) -> bool:
     return suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
 
-def convert_to_webm(input_path: str, output_path: str) -> str:
-    """Convert video to WebM with VP9 codec using ffmpeg for browser compatibility."""
-    cmd = [
-        'ffmpeg', '-y', '-i', input_path,
-        '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
-        '-an',  # No audio
-        output_path
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg conversion failed: {result.stderr}")
-    print(f'[convert_to_webm] :: Converted {input_path} -> {output_path}')
-    return output_path
-
-
 def create_simple_plots_video(
     plots_dir: str = 'simple_plots',
-    output_video: str = 'simple_plots/simple_plots_video.webm',
+    output_video: str = 'simple_plots/simple_plots_video.mp4',
     fps: int = 5,
 ):
     png_files = sorted(
@@ -73,14 +46,11 @@ def create_simple_plots_video(
 
     print(f'[create_simple_plots_video] :: Found {len(png_files)} PNG files')
 
-    # Create a temporary MP4 first using OpenCV (reliable), then convert to WebM with ffmpeg
-    temp_mp4 = output_video.replace('.webm', '_temp.mp4')
-    
     first_frame = cv2.imread(png_files[0])
     height, width, _ = first_frame.shape
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(temp_mp4, fourcc, fps, (width, height))
+    out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
     for i, png_file in enumerate(png_files):
         frame = cv2.imread(png_file)
@@ -91,15 +61,6 @@ def create_simple_plots_video(
             )
 
     out.release()
-    print(f'[create_simple_plots_video] :: Temp MP4 created, converting to WebM...')
-
-    # Convert to WebM using ffmpeg
-    convert_to_webm(temp_mp4, output_video)
-    
-    # Clean up temp file
-    if os.path.exists(temp_mp4):
-        os.remove(temp_mp4)
-    
     print(f'[create_simple_plots_video] :: Video saved to {output_video}')
     return output_video
 
@@ -108,6 +69,7 @@ async def run_inference(
     model: UploadFile = File(...),
     frame: UploadFile = File(...),
     inference_mode: str = Form(...),
+    density_threshold: float = Form(...),
 ):
     model_contents = await model.read()
     frame_contents = await frame.read()
@@ -126,6 +88,8 @@ async def run_inference(
         is_video = _is_video_suffix(frame_path.suffix or ".mp4")
         simple_plots_dir = temp_path / "simple_plots"
         simple_plots_dir.mkdir(parents=True, exist_ok=True)
+        frame_densities = []
+        frame_indices = []
 
         original_cwd = Path.cwd()
         try:
@@ -140,10 +104,10 @@ async def run_inference(
             r_boxes = model_runner.inference() or {}
 
             # Get video FPS for matching simple_plots video duration
-            video_fps = 30  # Default FPS
+            video_fps = 30.0  # Default FPS
             if is_video:
                 cap = cv2.VideoCapture(str(frame_path))
-                video_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+                video_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
                 cap.release()
 
             if r_boxes:
@@ -158,9 +122,23 @@ async def run_inference(
                         raise RuntimeError("Could not read input image")
                     height, width, _ = frame_img.shape
 
-                for k in r_boxes.keys():
-                    boxes_array = r_boxes.get(k, [])
+                def _frame_sort_key(value):
+                    try:
+                        return int(value)
+                    except (TypeError, ValueError):
+                        return str(value)
+
+                for k in sorted(r_boxes.keys(), key=_frame_sort_key):
+                    boxes_array = r_boxes.get(k, []) or []
+                    try:
+                        frame_idx = int(k)
+                    except (TypeError, ValueError):
+                        frame_idx = len(frame_indices)
+                    frame_indices.append(frame_idx)
+
+                    coverage = 0.0
                     if not boxes_array:
+                        frame_densities.append(coverage)
                         continue
 
                     boxes = torch.tensor(boxes_array, dtype=torch.int16)
@@ -171,6 +149,7 @@ async def run_inference(
                     for x1, y1, x2, y2 in boxes.tolist():
                         frame_mask[y1:y2, x1:x2] = 1
                     coverage = 100.0 * frame_mask.sum() / (width * height)
+                    frame_densities.append(float(coverage))
 
                     conversor = UnitConversor(
                         rel_altitude=rel_alt,
@@ -207,25 +186,18 @@ async def run_inference(
 
             simple_plots_video_path = create_simple_plots_video(
                 plots_dir=str(simple_plots_dir),
-                output_video=str(simple_plots_dir / "simple_plots_video.webm"),
+                output_video=str(simple_plots_dir / "simple_plots_video.mp4"),
                 fps=int(video_fps),
             )
 
             if is_video:
-                # YoloModel creates output.mp4 with mp4v codec (not browser compatible)
-                # Convert it to WebM with VP8 for browser playback
-                yolo_output_mp4 = temp_path / "output.mp4"
-                output_media_path = temp_path / "output.webm"
-                if yolo_output_mp4.exists():
-                    convert_to_webm(str(yolo_output_mp4), str(output_media_path))
+                output_media_path = temp_path / "output.mp4"
                 
                 simple_plots_media_path = (
                     Path(simple_plots_video_path)
                     if simple_plots_video_path is not None
-                    else temp_path / "output.webm"
+                    else temp_path / "output.mp4"
                 )
-                simple_plots_content_type = "video/webm"
-                output_content_type = "video/webm"
             else:
                 output_media_path = temp_path / "output.jpg"
                 simple_plot_img = simple_plots_dir / "simple_plot_0.png"
@@ -235,8 +207,6 @@ async def run_inference(
                     fallback = simple_plots_dir / "simple_plot_0.png"
                     shutil.copyfile(output_media_path, fallback)
                     simple_plots_media_path = fallback
-                simple_plots_content_type = _guess_content_type(simple_plots_media_path, "image/png")
-                output_content_type = _guess_content_type(output_media_path, "image/jpeg")
 
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -249,17 +219,97 @@ async def run_inference(
         if not simple_plots_media_path.exists():
             raise HTTPException(status_code=500, detail="simple_plots media was not generated")
 
+        run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+        saved_dir = Path(__file__).resolve().parent / "generated_runs" / run_id
+        saved_dir.mkdir(parents=True, exist_ok=True)
+
+        saved_output = saved_dir / output_media_path.name
+        saved_plots = saved_dir / simple_plots_media_path.name
+        shutil.copy2(output_media_path, saved_output)
+        shutil.copy2(simple_plots_media_path, saved_plots)
+        if predictions_path.exists():
+            shutil.copy2(predictions_path, saved_dir / predictions_path.name)
+
+        window_frames = max(1, int(round(float(video_fps) * 3)))
+        logs = []
+
+        def _fmt_time(seconds_value: int) -> str:
+            mm, ss = divmod(max(0, int(seconds_value)), 60)
+            return f"{mm:02d}:{ss:02d}"
+
+        if frame_densities:
+            # Build all windows >= threshold first, then aggregate by second to avoid
+            # emitting almost identical logs for each frame.
+            triggered_windows = []
+
+            if len(frame_densities) < window_frames:
+                window_densities = frame_densities
+                density_sum = float(sum(window_densities))
+                avg_density = density_sum / max(1, len(window_densities))
+                if avg_density >= density_threshold:
+                    end_frame_idx = frame_indices[-1] if frame_indices else 0
+                    end_seconds = int(end_frame_idx / max(float(video_fps), 1.0))
+                    triggered_windows.append(
+                        {
+                            "end_seconds": end_seconds,
+                            "end_frame_idx": end_frame_idx,
+                            "density_sum": density_sum,
+                            "avg_density": avg_density,
+                            "frames": len(window_densities),
+                        }
+                    )
+            else:
+                for i in range(window_frames - 1, len(frame_densities)):
+                    window_densities = frame_densities[i - window_frames + 1:i + 1]
+                    density_sum = float(sum(window_densities))
+                    avg_density = density_sum / len(window_densities)
+                    if avg_density >= density_threshold:
+                        end_frame_idx = frame_indices[i] if i < len(frame_indices) else i
+                        end_seconds = int(end_frame_idx / max(float(video_fps), 1.0))
+                        triggered_windows.append(
+                            {
+                                "end_seconds": end_seconds,
+                                "end_frame_idx": end_frame_idx,
+                                "density_sum": density_sum,
+                                "avg_density": avg_density,
+                                "frames": len(window_densities),
+                            }
+                        )
+
+            # Keep one representative log per second with the max density in that second.
+            grouped_by_second = {}
+            for window in triggered_windows:
+                second_key = window["end_seconds"]
+                if second_key not in grouped_by_second:
+                    grouped_by_second[second_key] = {
+                        "count": 0,
+                        "best": window,
+                    }
+                grouped_by_second[second_key]["count"] += 1
+                if window["avg_density"] > grouped_by_second[second_key]["best"]["avg_density"]:
+                    grouped_by_second[second_key]["best"] = window
+
+            for second_key in sorted(grouped_by_second.keys()):
+                group = grouped_by_second[second_key]
+                best = group["best"]
+                start_seconds = max(0, second_key - 3)
+                logs.append(
+                    f"En {_fmt_time(second_key)} del video (ventana {_fmt_time(start_seconds)}-{_fmt_time(second_key)}) "
+                    f"la densidad media maxima fue {best['avg_density']:.2f}% de ocupacion "
+                    f"(suma de densidades: {best['density_sum']:.2f}, frames: {best['frames']}, "
+                    f"ventanas detectadas ese segundo: {group['count']})."
+                )
+
         return {
             "results": {
-                "simple_plots": {
-                    "filename": simple_plots_media_path.name,
-                    "content_type": simple_plots_content_type,
-                    "content_base64": _file_to_base64(simple_plots_media_path),
-                },
-                "output_video": {
-                    "filename": output_media_path.name,
-                    "content_type": output_content_type,
-                    "content_base64": _file_to_base64(output_media_path),
+                "density_threshold": density_threshold,
+                "window_seconds": 3,
+                "window_frames": window_frames,
+                "logs": logs,
+                "saved_artifacts": {
+                    "run_dir": str(saved_dir),
+                    "output_media_path": str(saved_output),
+                    "simple_plots_media_path": str(saved_plots),
                 },
             },
         }

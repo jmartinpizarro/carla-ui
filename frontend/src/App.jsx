@@ -1,19 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import './App.css'
 import Loading from './components/Loading'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
-
-function b64ToBlob(base64Content, contentType) {
-  const binary = atob(base64Content)
-  const bytes = new Uint8Array(binary.length)
-
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-
-  return new Blob([bytes], { type: contentType })
-}
 
 function App() {
   const [isLoading, setIsLoading] = useState(false)
@@ -49,6 +38,8 @@ function App() {
     const modelFile = form.elements.model?.files?.[0] ?? null
     const frameFile = form.elements.frame?.files?.[0] ?? null
     const inferenceMode = form.elements.inference_mode?.value ?? ''
+    const densityThresholdRaw = form.elements.density_threshold?.value ?? ''
+    const densityThreshold = Number(densityThresholdRaw)
 
     if (modelFile == null || frameFile == null || inferenceMode == null) {
       setIsLoading(false)
@@ -62,20 +53,20 @@ function App() {
       return
     }
 
+    if (!Number.isFinite(densityThreshold) || densityThreshold < 0 || densityThreshold > 100) {
+      setIsLoading(false)
+      alert('Please enter a valid density threshold between 0 and 100')
+      return
+    }
+
     try {
-      if (simplePlotsResult?.url) {
-        URL.revokeObjectURL(simplePlotsResult.url)
-      }
-      if (outputResult?.url) {
-        URL.revokeObjectURL(outputResult.url)
-      }
-      setSimplePlotsResult(null)
-      setOutputResult(null)
+      setResult(null)
 
       const payload = new FormData()
       payload.append('model', modelFile)
       payload.append('frame', frameFile)
       payload.append('inference_mode', inferenceMode)
+      payload.append('density_threshold', densityThreshold.toString())
 
       const response = await fetch(`${API_BASE_URL}/inference`, {
         method: 'POST',
@@ -87,35 +78,12 @@ function App() {
       }
 
       const data = await response.json()
-      const simplePlots = data?.results?.simple_plots
-      const outputVideo = data?.results?.output_video
-
-      if (
-        !simplePlots?.content_base64
-        || !outputVideo?.content_base64
-      ) {
-        throw new Error('Response does not include plot results')
+      const apiResults = data?.results
+      if (!apiResults || !Array.isArray(apiResults.logs)) {
+        throw new Error('Response does not include logs')
       }
 
-      const simplePlotsBlob = b64ToBlob(
-        simplePlots.content_base64,
-        simplePlots.content_type ?? 'application/octet-stream',
-      )
-      const outputVideoBlob = b64ToBlob(
-        outputVideo.content_base64,
-        outputVideo.content_type ?? 'application/octet-stream',
-      )
-
-      setSimplePlotsResult({
-        url: URL.createObjectURL(simplePlotsBlob),
-        contentType: simplePlots.content_type ?? '',
-        title: simplePlots.filename ?? 'simple_plots',
-      })
-      setOutputResult({
-        url: URL.createObjectURL(outputVideoBlob),
-        contentType: outputVideo.content_type ?? '',
-        title: outputVideo.filename ?? 'output',
-      })
+      setResult(apiResults)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Unexpected error while processing request')
     } finally {
@@ -187,6 +155,20 @@ function App() {
                 <label htmlFor="frame">Image or Video file</label>
                 <input type="file" id="frame" name="frame" accept="image/*,video/*" />
               </div>
+
+              <div className="form-group">
+                <label htmlFor="density_threshold">Density threshold (% ocupacion)</label>
+                <input
+                  type="number"
+                  id="density_threshold"
+                  name="density_threshold"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  defaultValue="10"
+                  required
+                />
+              </div>
             </fieldset>
 
             <button type="submit" className="submit-btn">Process file</button>
@@ -198,27 +180,39 @@ function App() {
           </form>
         </section> 
 
-        {simplePlotsResult && outputResult && (
-          <section>
-            <h2>Plots</h2>
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-              <div>
-                <h3>{simplePlotsResult.title}</h3>
-                {simplePlotsResult.contentType.startsWith('image/') ? (
-                  <img src={simplePlotsResult.url} alt={simplePlotsResult.title} width="480" />
-                ) : (
-                  <video src={simplePlotsResult.url} controls autoPlay muted playsInline width="480" />
-                )}
+        {result && (
+          <section className="results-section">
+            <h2>Logs de densidad</h2>
+            <p>
+              Umbral: <strong>{result.density_threshold}%</strong> de ocupacion. Ventana: <strong>{result.window_seconds}s</strong> ({result.window_frames} frames).
+            </p>
+
+            {result.saved_artifacts && (
+              <div className="artifacts-block">
+                <h3>Videos generados</h3>
+                <ul className="artifacts-list">
+                  <li>
+                    <strong>Predicciones:</strong> {result.saved_artifacts.output_media_path}
+                  </li>
+                  <li>
+                    <strong>Plots:</strong> {result.saved_artifacts.simple_plots_media_path}
+                  </li>
+                  <li>
+                    <strong>Carpeta:</strong> {result.saved_artifacts.run_dir}
+                  </li>
+                </ul>
               </div>
-              <div>
-                <h3>{outputResult.title}</h3>
-                {outputResult.contentType.startsWith('image/') ? (
-                  <img src={outputResult.url} alt={outputResult.title} width="480" />
-                ) : (
-                  <video src={outputResult.url} controls autoPlay muted playsInline width="480" />
-                )}
-              </div>
-            </div>
+            )}
+
+            {result.logs.length > 0 ? (
+              <ul className="logs-list">
+                {result.logs.map((logItem, index) => (
+                  <li key={`${index}-${logItem}`}>{logItem}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>No se detectaron ventanas de 3s por encima del umbral.</p>
+            )}
           </section>
         )}
       </div>
