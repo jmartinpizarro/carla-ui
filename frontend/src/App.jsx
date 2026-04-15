@@ -188,7 +188,7 @@ function App() {
                     <strong>Predicciones:</strong> {result.saved_artifacts.output_media_path}
                   </li>
                   <li>
-                    <strong>Plots:</strong> {result.saved_artifacts.simple_plots_media_path}
+                    <strong>Plots:</strong> {result.saved_artifacts.kde_plots_media_path}
                   </li>
                   <li>
                     <strong>Carpeta:</strong> {result.saved_artifacts.run_dir}

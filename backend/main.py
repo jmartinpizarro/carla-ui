@@ -1,7 +1,9 @@
 import glob
+import math
 import os
 import shutil
 import tempfile
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +35,16 @@ def _is_video_suffix(suffix: str) -> bool:
     return suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
 
+def _safe_video_fps(value: float, default: float = 30.0) -> float:
+    try:
+        fps = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(fps) or fps <= 0:
+        return default
+    return fps
+
+
 def create_simple_plots_video(
     plots_dir: str = 'simple_plots',
     output_video: str = 'simple_plots/simple_plots_video.mp4',
@@ -50,6 +62,8 @@ def create_simple_plots_video(
     print(f'[create_simple_plots_video] :: Found {len(png_files)} PNG files')
 
     first_frame = cv2.imread(png_files[0])
+    if first_frame is None:
+        raise RuntimeError(f'Could not read first simple plot image: {png_files[0]}')
     height, width, _ = first_frame.shape
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -57,6 +71,8 @@ def create_simple_plots_video(
 
     for i, png_file in enumerate(png_files):
         frame = cv2.imread(png_file)
+        if frame is None:
+            raise RuntimeError(f'Could not read simple plot image: {png_file}')
         out.write(frame)
         if (i + 1) % 10 == 0:
             print(
@@ -150,7 +166,7 @@ async def run_inference(
             video_fps = 30.0  # Default FPS
             if is_video:
                 cap = cv2.VideoCapture(str(frame_path))
-                video_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                video_fps = _safe_video_fps(cap.get(cv2.CAP_PROP_FPS), default=30.0)
                 cap.release()
 
             if r_boxes:
@@ -251,39 +267,45 @@ async def run_inference(
             kde_plots_video_path = create_kde_plots_video(
                 plots_dir='kde_plots',
                 output_video='kde_plots/kde_plots_video.mp4',
-                fps=int(video_fps),
+                fps=max(1, int(round(video_fps))),
             )
 
-            simple_plots_video_path = create_simple_plots_video(
-                plots_dir=str(simple_plots_dir),
-                output_video=str(simple_plots_dir / "simple_plots_video.mp4"),
-                fps=int(video_fps),
-            )
+            simple_plot_files = list(simple_plots_dir.glob("simple_plot_*.png"))
+            if simple_plot_files:
+                simple_plots_video_path = create_simple_plots_video(
+                    plots_dir=str(simple_plots_dir),
+                    output_video=str(simple_plots_dir / "simple_plots_video.mp4"),
+                    fps=max(1, int(round(video_fps))),
+                )
+            else:
+                simple_plots_video_path = None
 
             if is_video:
                 output_media_path = temp_path / "output.mp4"
                 
-                simple_plots_media_path = (
-                    Path(simple_plots_video_path)
-                    if simple_plots_video_path is not None
-                    else temp_path / "output.mp4"
-                )
+                #simple_plots_media_path = (
+                #    Path(simple_plots_video_path)
+                #    if simple_plots_video_path is not None
+                #    else temp_path / "output.mp4"
+                #)
                 kde_plots_media_path = (
                     Path(kde_plots_video_path)
                     if kde_plots_video_path is not None
                     else temp_path / "output.mp4"
                 )
+                if not kde_plots_media_path.is_absolute():
+                    kde_plots_media_path = temp_path / kde_plots_media_path
             else:
                 output_media_path = temp_path / "output.jpg"
-                simple_plot_img = simple_plots_dir / "simple_plot_0.png"
-                if simple_plot_img.exists():
-                    simple_plots_media_path = simple_plot_img
-                else:
-                    fallback = simple_plots_dir / "simple_plot_0.png"
-                    shutil.copyfile(output_media_path, fallback)
-                    simple_plots_media_path = fallback
+                #simple_plot_img = simple_plots_dir / "simple_plot_0.png"
+                #if simple_plot_img.exists():
+                #    simple_plots_media_path = simple_plot_img
+                #else:
+                #    fallback = simple_plots_dir / "simple_plot_0.png"
+                #    shutil.copyfile(output_media_path, fallback)
+                #    simple_plots_media_path = fallback
 
-                kde_plot_img = Path('kde_plots') / 'density_heatmap_kde_0.png'
+                kde_plot_img = temp_path / 'kde_plots' / 'density_heatmap_kde_0.png'
                 if kde_plot_img.exists():
                     kde_plots_media_path = kde_plot_img
                 else:
@@ -297,15 +319,18 @@ async def run_inference(
                 kde_plots_video_path = create_kde_plots_video(
                     plots_dir='kde_plots',
                     output_video=str(saved_dir / "kde_plots_video.mp4"),
-                    fps=int(video_fps),
+                    fps=max(1, int(round(video_fps))),
                 )
                 kde_plots_media_path = (
                     Path(kde_plots_video_path)
                     if kde_plots_video_path is not None
                     else temp_path / "output.mp4"
                 )
+                if not kde_plots_media_path.is_absolute():
+                    kde_plots_media_path = temp_path / kde_plots_media_path
 
         except Exception as exc:
+            print('[run_inference] :: ERROR\n' + traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
             os.chdir(original_cwd)
@@ -313,17 +338,17 @@ async def run_inference(
         if not output_media_path.exists():
             raise HTTPException(status_code=500, detail="processed output media was not generated")
 
-        if not simple_plots_media_path.exists():
-            raise HTTPException(status_code=500, detail="simple_plots media was not generated")
+        #if not simple_plots_media_path.exists():
+        #    raise HTTPException(status_code=500, detail="simple_plots media was not generated")
 
         if not kde_plots_media_path.exists():
             raise HTTPException(status_code=500, detail="kde_plots media was not generated")
 
         saved_output = saved_dir / output_media_path.name
-        saved_plots = saved_dir / simple_plots_media_path.name
+        #saved_plots = saved_dir / simple_plots_media_path.name
         saved_kde_plots = saved_dir / kde_plots_media_path.name
         shutil.copy2(output_media_path, saved_output)
-        shutil.copy2(simple_plots_media_path, saved_plots)
+        #shutil.copy2(simple_plots_media_path, saved_plots)
         if kde_plots_media_path.resolve() != saved_kde_plots.resolve():
             shutil.copy2(kde_plots_media_path, saved_kde_plots)
         if predictions_path.exists():
@@ -408,7 +433,7 @@ async def run_inference(
                 "saved_artifacts": {
                     "run_dir": str(saved_dir),
                     "output_media_path": str(saved_output),
-                    "simple_plots_media_path": str(saved_plots),
+                    #"simple_plots_media_path": str(saved_plots),
                     "kde_plots_media_path": str(saved_kde_plots),
                 },
             },
