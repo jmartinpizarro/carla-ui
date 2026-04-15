@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
 import Loading from './components/Loading'
 
@@ -6,8 +6,7 @@ const API_BASE_URL = 'http://127.0.0.1:8000'
 
 function App() {
   const [isLoading, setIsLoading] = useState(false)
-  const [simplePlotsResult, setSimplePlotsResult] = useState(null)
-  const [outputResult, setOutputResult] = useState(null)
+  const [result, setResult] = useState(null)
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem('theme')
     return savedTheme || 'light'
@@ -21,14 +20,11 @@ function App() {
 
   useEffect(() => {
     return () => {
-      if (simplePlotsResult?.url) {
-        URL.revokeObjectURL(simplePlotsResult.url)
-      }
-      if (outputResult?.url) {
-        URL.revokeObjectURL(outputResult.url)
+      if (result?.url) {
+        URL.revokeObjectURL(result.url)
       }
     }
-  }, [simplePlotsResult, outputResult])
+  }, [result])
 
   async function handleClick(e) {
     e.preventDefault()
@@ -117,9 +113,6 @@ function App() {
           <br />
           <br />
           The usage is simple: insert your .pt model and select if either it was trained or not using tiling methodologies. Then, insert your data to be predicted: it can be either an image or a video (mp4 file).
-          <br />
-          <br />
-          Because of how the API internally works, a simple video of 22 seconds can be processed in up to 10 minutes! If you are aiming for quick results using the terminal, do not hesitate and fork the original CARLA repository where prediction can be almost real-time.
         </p>
       </header>
 

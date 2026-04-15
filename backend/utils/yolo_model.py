@@ -244,6 +244,7 @@ class YoloModel:
             ax.grid(True, alpha=0.3)
 
         plt.tight_layout()
+        os.makedirs('kde_plots', exist_ok=True)
         plt.savefig(
             f'kde_plots/density_heatmap_kde_{frame}.png', dpi=150, bbox_inches='tight'
         )

@@ -96,7 +96,7 @@ body {
 
 .app-description {
   color: var(--text-secondary);
-  max-width: 600px;
+  max-width: 1024px;
   margin: 1rem auto 0;
   text-align: left;
   line-height: 1.6;

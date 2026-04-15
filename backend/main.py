@@ -6,11 +6,14 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
+import geopandas as gpd
+from shapely import Point
 import numpy as np
 import torch
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pyproj import Transformer
 
 from backend.utils.unit_conversor import UnitConversor
 from backend.utils.yolo_model import YoloModel
@@ -62,6 +65,46 @@ def create_simple_plots_video(
 
     out.release()
     print(f'[create_simple_plots_video] :: Video saved to {output_video}')
+    return output_video
+
+
+def create_kde_plots_video(
+    plots_dir: str = 'kde_plots',
+    output_video: str = 'kde_plots/kde_plots_video.mp4',
+    fps: int = 5,
+):
+    png_files = sorted(
+        glob.glob(os.path.join(plots_dir, 'density_heatmap_kde_*.png')),
+        key=lambda x: int(x.split('_')[-1].split('.')[0]),
+    )
+
+    if not png_files:
+        print(f'[create_kde_plots_video] :: No PNG files found in {plots_dir}')
+        return None
+
+    print(f'[create_kde_plots_video] :: Found {len(png_files)} PNG files')
+
+    first_frame = cv2.imread(png_files[0])
+    if first_frame is None:
+        raise RuntimeError(f'Could not read first KDE plot image: {png_files[0]}')
+
+    height, width, _ = first_frame.shape
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
+
+    for i, png_file in enumerate(png_files):
+        frame = cv2.imread(png_file)
+        if frame is None:
+            raise RuntimeError(f'Could not read KDE plot image: {png_file}')
+        out.write(frame)
+        if (i + 1) % 10 == 0:
+            print(
+                f'[create_kde_plots_video] :: Processed {i + 1}/{len(png_files)} frames'
+            )
+
+    out.release()
+    print(f'[create_kde_plots_video] :: Video saved to {output_video}')
     return output_video
 
 @app.post("/inference")
@@ -165,24 +208,51 @@ async def run_inference(
                         [boxes[:, 2], boxes[:, 3], boxes[:, 2], boxes[:, 3]],
                         dim=1,
                     )
-                    corner_conversor = UnitConversor(
+                    conversor = UnitConversor(
                         rel_altitude=rel_alt,
                         boxes=corner_boxes,
                         drone_pos=drone_pos,
                         gb_yaw=29.5,
                         resolution=(width, height),
                     )
-                    ref_lats, ref_lons = corner_conversor.calc_rw_positions_boxes()
 
-                    model_runner.generate_simple_circle_plot(
-                        lats,
-                        lons,
-                        ref_lats,
-                        ref_lons,
-                        frame=k,
-                        output_dir=str(simple_plots_dir),
-                        coverage=coverage,
+                    # transform positions into lat, lon
+                    lats, lons = conversor.calc_rw_positions_boxes()
+                    
+                    # (no drone pos included) - could be useful in order to see the evolution
+                    # of the flight
+                    geometries = [Point(lon, lat) for lat, lon in zip(lats, lons)]
+                    gdf = gpd.GeoDataFrame(
+                       {'type': ['detection'] * len(geometries)},
+                       geometry=geometries,
+                       crs='EPSG:4326',
+                    ).to_crs(epsg=3857)
+                    
+                    model_runner.generate_density_heatmap(
+                        gdf_metric=gdf,
+                        bandwidths=[1, 2],
+                        frame=frame_idx,
                     )
+
+                    # circle using box center and opposite corner as radius
+                    # ref_lats, ref_lons = conversor.calc_rw_positions_pixels(
+                    #     boxes[:, 2], boxes[:, 3]
+                    # )
+                    # model_runner.generate_simple_circle_plot(
+                    #     lats,
+                    #     lons,
+                    #     ref_lats,
+                    #     ref_lons,
+                    #     frame=k,
+                    #     output_dir=str(simple_plots_dir),
+                    #     coverage=coverage,
+                    # )
+
+            kde_plots_video_path = create_kde_plots_video(
+                plots_dir='kde_plots',
+                output_video='kde_plots/kde_plots_video.mp4',
+                fps=int(video_fps),
+            )
 
             simple_plots_video_path = create_simple_plots_video(
                 plots_dir=str(simple_plots_dir),
@@ -198,6 +268,11 @@ async def run_inference(
                     if simple_plots_video_path is not None
                     else temp_path / "output.mp4"
                 )
+                kde_plots_media_path = (
+                    Path(kde_plots_video_path)
+                    if kde_plots_video_path is not None
+                    else temp_path / "output.mp4"
+                )
             else:
                 output_media_path = temp_path / "output.jpg"
                 simple_plot_img = simple_plots_dir / "simple_plot_0.png"
@@ -207,6 +282,28 @@ async def run_inference(
                     fallback = simple_plots_dir / "simple_plot_0.png"
                     shutil.copyfile(output_media_path, fallback)
                     simple_plots_media_path = fallback
+
+                kde_plot_img = Path('kde_plots') / 'density_heatmap_kde_0.png'
+                if kde_plot_img.exists():
+                    kde_plots_media_path = kde_plot_img
+                else:
+                    kde_plots_media_path = output_media_path
+
+            run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+            saved_dir = Path(__file__).resolve().parent / "generated_runs" / run_id
+            saved_dir.mkdir(parents=True, exist_ok=True)
+
+            if is_video:
+                kde_plots_video_path = create_kde_plots_video(
+                    plots_dir='kde_plots',
+                    output_video=str(saved_dir / "kde_plots_video.mp4"),
+                    fps=int(video_fps),
+                )
+                kde_plots_media_path = (
+                    Path(kde_plots_video_path)
+                    if kde_plots_video_path is not None
+                    else temp_path / "output.mp4"
+                )
 
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -219,14 +316,16 @@ async def run_inference(
         if not simple_plots_media_path.exists():
             raise HTTPException(status_code=500, detail="simple_plots media was not generated")
 
-        run_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-        saved_dir = Path(__file__).resolve().parent / "generated_runs" / run_id
-        saved_dir.mkdir(parents=True, exist_ok=True)
+        if not kde_plots_media_path.exists():
+            raise HTTPException(status_code=500, detail="kde_plots media was not generated")
 
         saved_output = saved_dir / output_media_path.name
         saved_plots = saved_dir / simple_plots_media_path.name
+        saved_kde_plots = saved_dir / kde_plots_media_path.name
         shutil.copy2(output_media_path, saved_output)
         shutil.copy2(simple_plots_media_path, saved_plots)
+        if kde_plots_media_path.resolve() != saved_kde_plots.resolve():
+            shutil.copy2(kde_plots_media_path, saved_kde_plots)
         if predictions_path.exists():
             shutil.copy2(predictions_path, saved_dir / predictions_path.name)
 
@@ -310,6 +409,7 @@ async def run_inference(
                     "run_dir": str(saved_dir),
                     "output_media_path": str(saved_output),
                     "simple_plots_media_path": str(saved_plots),
+                    "kde_plots_media_path": str(saved_kde_plots),
                 },
             },
         }
