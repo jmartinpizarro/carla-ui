@@ -15,8 +15,8 @@ from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pyproj import Transformer
 
-from backend.utils.unit_conversor import UnitConversor
-from backend.utils.yolo_model import YoloModel
+from utils.unit_conversor import UnitConversor
+from utils.yolo_model import YoloModel
 
 app = FastAPI()
 

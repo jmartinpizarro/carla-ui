@@ -2,7 +2,7 @@
 Contains the class YoloModel used for doing inference with a .pt model.
 """
 
-from backend.utils.tiling_utils import process_frame_with_grids
+from utils.tiling_utils import process_frame_with_grids
 
 import cv2
 import numpy as np
@@ -145,8 +145,6 @@ class YoloModel:
                 #    break
             else:
                 cv2.imwrite('output.jpg', frame)
-                # cv2.imshow('YOLO Prediction', frame)
-                cv2.waitKey(0)
                 frame_count += 1
 
         if self.log_files is not None:
@@ -155,8 +153,6 @@ class YoloModel:
         if is_video:
             out.release()
             cap.release()
-
-        cv2.destroyAllWindows()
 
         return r_boxes
 

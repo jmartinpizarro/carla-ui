@@ -1,0 +1,16 @@
+services:
+  # if providing context, docker goes automatically to that route. it is not necessary to 
+  # add the relative Dockerfile route from the root of the project
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    gpus: all
+    ports: ["8000:8000"]
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
