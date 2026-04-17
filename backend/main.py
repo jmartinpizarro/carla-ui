@@ -418,10 +418,10 @@ async def run_inference(
                 best = group["best"]
                 start_seconds = max(0, second_key - 3)
                 logs.append(
-                    f"En {_fmt_time(second_key)} del video (ventana {_fmt_time(start_seconds)}-{_fmt_time(second_key)}) "
-                    f"la densidad media maxima fue {best['avg_density']:.2f}% de ocupacion "
-                    f"(suma de densidades: {best['density_sum']:.2f}, frames: {best['frames']}, "
-                    f"ventanas detectadas ese segundo: {group['count']})."
+                    f"In {_fmt_time(second_key)} of video(window {_fmt_time(start_seconds)}-{_fmt_time(second_key)}) "
+                    f"the maximum average density was {best['avg_density']:.2f}% "
+                    f"(sum of densities: {best['density_sum']:.2f}, frames: {best['frames']}, "
+                    f"frames detected in that second: {group['count']})."
                 )
 
         return {
