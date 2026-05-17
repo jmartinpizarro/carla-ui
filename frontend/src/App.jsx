@@ -175,23 +175,23 @@ function App() {
 
         {result && (
           <section className="results-section">
-            <h2>Logs de densidad</h2>
+            <h2>Density Logs</h2>
             <p>
-              Umbral: <strong>{result.density_threshold}%</strong> de ocupacion. Ventana: <strong>{result.window_seconds}s</strong> ({result.window_frames} frames).
+              Occupation threshold: <strong>{result.density_threshold}%</strong>. Window: <strong>{result.window_seconds}s</strong> ({result.window_frames} frames).
             </p>
 
             {result.saved_artifacts && (
               <div className="artifacts-block">
-                <h3>Videos generados</h3>
+                <h3>Generated Output</h3>
                 <ul className="artifacts-list">
                   <li>
-                    <strong>Predicciones:</strong> {result.saved_artifacts.output_media_path}
+                    <strong>Predictions:</strong> {result.saved_artifacts.output_media_path}
                   </li>
                   <li>
                     <strong>Plots:</strong> {result.saved_artifacts.kde_plots_media_path}
                   </li>
                   <li>
-                    <strong>Carpeta:</strong> {result.saved_artifacts.run_dir}
+                    <strong>Folder:</strong> {result.saved_artifacts.run_dir}
                   </li>
                 </ul>
               </div>
@@ -204,7 +204,7 @@ function App() {
                 ))}
               </ul>
             ) : (
-              <p>No se detectaron ventanas de 3s por encima del umbral.</p>
+              <p>No windows were detected for the given threshold.</p>
             )}
           </section>
         )}
